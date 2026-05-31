@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shader Studio | Hybrid WebGL</title>
+    <style>
+        body {
+            background-color: #050505;
+            color: #c9d1d9;
+            font-family: 'Cascadia Code', 'Consolas', monospace;
+            margin: 0;
+            display: flex;
+            flex-direction: row; 
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        /* --- Canvas Section --- */
+        #canvas-container {
+            flex: 1.2; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            border-right: 2px solid #30363d;
+        }
+
+        canvas {
+            width: 90%;
+            height: auto;
+            border: 1px solid #30363d;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
+            background-color: #000;
+        }
+
+        .canvas-controls { margin-top: 15px; }
+
+        /* --- Right Panel Layout --- */
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #editor-wrapper {
+            flex: 1; 
+            display: flex;
+            flex-direction: column;
+            background: #0d1117;
+            border-bottom: 2px solid #30363d;
+            min-height: 0;
+        }
+
+        .section-header {
+            flex-shrink: 0;
+            background: #161b22;
+            padding: 10px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #8b949e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        #filename-input {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #7ee787;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.75rem;
+            width: 120px;
+            outline: none;
+        }
+
+        .editor-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #line-numbers {
+            width: 45px;
+            background: #0d1117;
+            color: #484f58;
+            padding: 15px 5px;
+            text-align: right;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            user-select: none;
+            border-right: 1px solid #30363d;
+            overflow: hidden;
+        }
+
+        textarea {
+            flex: 1;
+            background: transparent;
+            color: #d2a8ff;
+            border: none;
+            padding: 15px;
+            font-family: 'Cascadia Code', monospace;
+            font-size: 0.9rem;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+            white-space: pre;
+            overflow: auto;
+        }
+
+        /* --- Collapsible Terminal --- */
+        #terminal-wrapper {
+            flex: 0 0 30%;
+            display: flex;
+            flex-direction: column;
+            background: #010409;
+            overflow: hidden;
+            transition: flex 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            min-height: 40px; 
+        }
+
+        #terminal-wrapper.minimized {
+            flex: 0 0 40px; 
+        }
+
+        #terminal { 
+            flex: 1; 
+            padding: 10px;
+            overflow-y: auto; 
+            font-size: 0.8rem; 
+            background: #050505;
+        }
+
+        /* --- UI Components --- */
+        .button-group { display: flex; gap: 8px; }
+        button {
+            background: #30363d;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.7rem;
+            white-space: nowrap;
+        }
+        
+        button:hover { background: #484f58; }
+        button.playing-state { background: #8957e5; }
+        button.paused-state { background: #238636; }
+        button#runBtn { background: #238636; }
+
+        .log-entry { display: flex; margin-bottom: 4px; padding-left: 8px; font-family: monospace; border-left: 3px solid transparent; }
+        .time { color: #484f58; margin-right: 10px; font-size: 0.7rem; }
+        .error { color: #ff7b72; border-left-color: #ff7b72; background: rgba(255, 123, 114, 0.1); }
+        .update { color: #7ee787; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="shaderCanvas" width="720" height="360"></canvas>
+        <div class="canvas-controls">
+            <button id="pausePlayBtn" class="paused-state" onclick="togglePause()">Play (Alt+S)</button>
+        </div>
+    </div>
+
+    <div class="right-panel">
+        <div id="editor-wrapper">
+            <div class="section-header">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span>File:</span>
+                    <input type="text" id="filename-input" value="my_shader">
+                </div>
+                <div class="button-group">
+                    <button onclick="openFile()">Open (Alt+J)</button>
+                    <button style="background: #1f6feb;" onclick="downloadTxt()">Save .txt (Alt+K)</button>
+                    <button onclick="exportFullHtml()">Export HTML (Alt+L)</button>
+                    <button id="runBtn" onclick="compileShaderFromEditor()">Run (Alt+Enter)</button>
+                </div>
+            </div>
+            <div class="editor-container">
+                <div id="line-numbers">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11</div>
+                <textarea id="shaderEditor" spellcheck="false" oninput="updateLineNumbers()" onscroll="syncScroll()">#version 300 es
+precision highp float;
+
+uniform float u_time;
+uniform vec2 u_resolution;
+out vec4 outColor;
+
+// Simple hash for a clean noise seed per pixel
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+// Fast spectral-to-RGB approximation
+vec3 spectralToRGB(float lambda) {
+    vec3 c = vec3(0.0);
+    if (lambda &gt;= 400.0 &amp;&amp; lambda &lt; 440.0) {
+        c = vec3((440.0 - lambda) / (440.0 - 400.0), 0.0, 1.0);
+    } else if (lambda &gt;= 440.0 &amp;&amp; lambda &lt; 490.0) {
+        c = vec3(0.0, (lambda - 440.0) / (490.0 - 440.0), 1.0);
+    } else if (lambda &gt;= 490.0 &amp;&amp; lambda &lt; 510.0) {
+        c = vec3(0.0, 1.0, (510.0 - lambda) / (510.0 - 490.0));
+    } else if (lambda &gt;= 510.0 &amp;&amp; lambda &lt; 580.0) {
+        c = vec3((lambda - 510.0) / (580.0 - 510.0), 1.0, 0.0);
+    } else if (lambda &gt;= 580.0 &amp;&amp; lambda &lt; 645.0) {
+        c = vec3(1.0, (645.0 - lambda) / (645.0 - 580.0), 0.0);
+    } else if (lambda &gt;= 645.0 &amp;&amp; lambda &lt;= 700.0) {
+        c = vec3(1.0, 0.0, 0.0);
+    }
+    float factor = 1.0;
+    if (lambda &lt; 420.0)       factor = 0.3 + 0.7 * (lambda - 400.0) / (420.0 - 400.0);
+    else if (lambda &gt; 650.0)  factor = 0.3 + 0.7 * (700.0 - lambda) / (700.0 - 650.0);
+    return c * factor;
+}
+
+// Traces a single ray for a specific wavelength and returns the resulting spectral energy
+float traceRay(vec3 ro, vec3 rd, float lambda) {
+    // Dispersion: Shorter wavelengths bend sharper
+    float ior = 1.1 + (15.0 / (lambda * 0.1)); 
+
+    float t = 1e5;
+    vec3 normal = vec3(0.0);
+
+    // --- SPHERE INTERSECTION ---
+    vec3 sPos = vec3(0.0, 0.5, 0.0);
+    vec3 oc = ro - sPos;
+    float b = dot(oc, rd);
+    float c = dot(oc, oc) - 1.0;
+    float h = b * b - c;
+    
+    if (h &gt;= 0.0) {
+        t = -b - sqrt(h);
+        normal = normalize((ro + rd * t) - sPos);
+        rd = refract(rd, normal, 1.0 / ior);
+        ro = ro + rd * t;
+    }
+
+    // --- PLANE INTERSECTION ---
+    float tPlane = -(ro.y + 0.5) / (rd.y + 1e-5);
+    
+    if (tPlane &gt; 0.0 &amp;&amp; tPlane &lt; t) {
+        vec3 hitPlane = ro + rd * tPlane;
+        return step(0.5, fract(hitPlane.z * 2.0 + u_time * 0.5));
+    }
+    
+    return max(0.0, rd.y + 0.2); // Background
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / u_resolution.y;
+
+    // Base ray setup
+    vec3 ro = vec3(0.0, 0.5, -3.0); 
+    vec3 rd = normalize(vec3(uv, 1.5));
+
+    // Jitter seed over time to make remaining grain feel like smooth film grain rather than hard static
+    float rng = hash(gl_FragCoord.xy + fract(u_time));
+
+    vec3 accumulatedRGB = vec3(0.0);
+
+    // Loop over 4 uniformly distributed spectral samples across the 400nm - 700nm spectrum
+    int numSamples = 4;
+    for(int i = 0; i &lt; numSamples; i++) {
+        // Distribute offsets evenly across the spectrum, shifted by our pixel jitter
+        float offset = (float(i) + rng) / float(numSamples);
+        float lambda = 400.0 + offset * 300.0;
+
+        // Trace the ray for this specific wavelength
+        float energy = traceRay(ro, rd, lambda);
+
+        // Convert energy at this wavelength to RGB and accumulate
+        accumulatedRGB += spectralToRGB(lambda) * energy;
+    }
+
+    // Average the accumulated spectral colors
+    vec3 finalColor = accumulatedRGB / float(numSamples);
+
+    // Clean gamma correction
+    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+    outColor = vec4(finalColor, 1.0);
+}</textarea>
+            </div>
+        </div>
+
+        <div id="terminal-wrapper">
+            <div class="section-header" onclick="toggleTerminal()" style="cursor: pointer;">
+                <span>System Output</span>
+                <span id="term-status-icon">▼</span>
+            </div>
+            <div id="terminal"><div class="log-entry update"><span class="time">[305ms]</span><span class="content">Unit Dispatched Successfully</span></div><div class="log-entry update"><span class="time">[15898ms]</span><span class="content">Time: 1.28s | Unit Sync: 144hz</span></div></div>
+        </div>
+    </div>
+
+    <script id="vertexShader" type="x-shader/x-vertex">#version 300 es
+in vec2 position;
+void main() { gl_Position = vec4(position, 0.0, 1.0); }</script>
+
+    <script>
+        const canvas = document.getElementById('shaderCanvas');
+        const editor = document.getElementById('shaderEditor');
+        const terminal = document.getElementById('terminal');
+        const lineNumbers = document.getElementById('line-numbers');
+        const pausePlayBtn = document.getElementById('pausePlayBtn');
+        const filenameInput = document.getElementById('filename-input');
+        const termWrapper = document.getElementById('terminal-wrapper');
+        const termIcon = document.getElementById('term-status-icon');
+        
+        // Asynchronous context: No implicit sync with browser compositor
+        let gl = canvas.getContext('webgl2', { desynchronized: true, preserveDrawingBuffer: false });
+        let program, animationId;
+        let isPaused = false;
+        let startTime = performance.now();
+        let pausedAt = 0;
+        let totalPausedTime = 0;
+        let lastFrameTime = 0;
+        let fps = 0;
+
+        const registry = new Map();
+
+        function toggleTerminal() {
+            termWrapper.classList.toggle('minimized');
+            termIcon.textContent = termWrapper.classList.contains('minimized') ? '▲' : '▼';
+        }
+
+        function renderToUI(key, message, level = 'log') {
+            if (level === 'error' && termWrapper.classList.contains('minimized')) toggleTerminal();
+            if (key && registry.has(key)) {
+                const existing = registry.get(key);
+                const contentSpan = existing.querySelector('.content');
+                if (contentSpan) contentSpan.textContent = message;
+            } else {
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${level}`;
+                entry.innerHTML = `<span class="time">[${performance.now().toFixed(0)}ms]</span><span class="content">${message}</span>`;
+                terminal.appendChild(entry);
+                if (key) registry.set(key, entry);
+            }
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        console.log = (...args) => renderToUI(null, args.join(' '), 'log');
+        console.error = (...args) => renderToUI(null, args.join(' '), 'error');
+        console.update = (id, msg) => renderToUI(id, msg, 'update');
+
+        function syncScroll() { lineNumbers.scrollTop = editor.scrollTop; }
+        function updateLineNumbers() {
+            const lines = editor.value.split('\n');
+            lineNumbers.innerHTML = lines.map((_, i) => i + 1).join('<br>');
+            syncScroll();
+        }
+
+        function downloadTxt() {
+            const fileName = (filenameInput.value || 'shader') + '.txt';
+            const blob = new Blob([editor.value], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            console.update('status', `File Saved: ${fileName}`);
+        }
+
+        function exportFullHtml() {
+            const fileName = (filenameInput.value || 'ShaderProject') + '.html';
+            const docClone = document.documentElement.cloneNode(true);
+            const clonedEditor = docClone.querySelector('#shaderEditor');
+            if (clonedEditor) clonedEditor.textContent = editor.value; 
+            const content = "<!DOCTYPE html>\n" + docClone.outerHTML;
+            const blob = new Blob([content], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            console.update('status', "HTML Project Exported");
+        }
+
+        function openFile() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.txt,.glsl,.html';
+            input.onchange = async e => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const text = await file.text();
+                filenameInput.value = file.name.replace(/\.[^/.]+$/, "");
+                if (file.name.endsWith('.html')) {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(text, 'text/html');
+                    const savedEditor = doc.getElementById('shaderEditor');
+                    if (savedEditor) editor.value = savedEditor.value;
+                } else { editor.value = text; }
+                updateLineNumbers();
+                compileShaderFromEditor();
+            };
+            input.click();
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            pausePlayBtn.className = isPaused ? 'paused-state' : 'playing-state';
+            pausePlayBtn.textContent = isPaused ? "Play (Alt+S)" : "Pause (Alt+S)";
+            if (isPaused) { pausedAt = performance.now(); } 
+            else { 
+                totalPausedTime += (performance.now() - pausedAt); 
+                lastFrameTime = 0;
+                requestAnimationFrame(renderLoop); 
+            }
+        }
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error("UNIT ERROR: " + gl.getShaderInfoLog(shader));
+                return null;
+            }
+            return shader;
+        }
+
+        function compileShaderFromEditor() {
+            if (animationId) cancelAnimationFrame(animationId);
+            const vsSource = document.getElementById('vertexShader').textContent.trim();
+            const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fs = createShader(gl, gl.FRAGMENT_SHADER, editor.value.trim());
+            
+            if (!vs || !fs) return;
+            if (program) gl.deleteProgram(program);
+
+            program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+
+            gl.useProgram(program);
+            
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+            const pos = gl.getAttribLocation(program, "position");
+            gl.enableVertexAttribArray(pos);
+            gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+            startTime = performance.now();
+            totalPausedTime = 0;
+            isPaused = false;
+            lastFrameTime = 0;
+            console.update('status', "Unit Dispatched Successfully");
+            requestAnimationFrame(renderLoop);
+        }
+
+        function renderLoop(now) {
+            if (isPaused) return;
+
+            if (lastFrameTime > 0) {
+                const delta = now - lastFrameTime;
+                fps = (fps * 0.9) + ((1000 / delta) * 0.1);
+            }
+            lastFrameTime = now;
+
+            const time = (now - startTime - totalPausedTime) * 0.001;
+            
+            // Writing commands to the Shared Unit
+            const uTime = gl.getUniformLocation(program, "u_time");
+            const uRes = gl.getUniformLocation(program, "u_resolution");
+            if(uTime) gl.uniform1f(uTime, time);
+            if(uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
+            
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            
+            console.update('gpu-stats', `Time: ${time.toFixed(2)}s | Unit Sync: ${Math.round(fps)}hz`);
+            animationId = requestAnimationFrame(renderLoop);
+        }
+
+        editor.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = this.selectionStart;
+                this.value = this.value.substring(0, start) + "    " + this.value.substring(this.selectionEnd);
+                this.selectionStart = this.selectionEnd = start + 4;
+                updateLineNumbers();
+            }
+        });
+
+        window.addEventListener('keydown', e => {
+            if (e.key === 'Escape') editor.blur();
+            if (e.altKey && e.key === 'Enter') compileShaderFromEditor();
+            if (e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); togglePause(); }
+            if (e.altKey && e.key.toLowerCase() === 'j') { e.preventDefault(); openFile(); }
+            if (e.altKey && e.key.toLowerCase() === 'l') { e.preventDefault(); exportFullHtml(); }
+            if (e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); downloadTxt(); }
+        });
+
+        updateLineNumbers();
+        if (gl) compileShaderFromEditor();
+    </script>
+
+</body></html>
